@@ -3,9 +3,10 @@ channels:
   - bioconda
   - conda-forge
 dependencies:
-  - r-base=4.3.3
-  - r-essentials=4.3
+  - bioconductor-geoquery=2.78.0
+  - bioconductor-spacexr=1.2.0
+  - r-base=4.5.3
+  - r-essentials=4.5
   - r-r.utils=2.13.0
-  - r-seurat=5.3.0
-  - r-spacexr=2.2.1
-prefix: /opt/miniconda3/envs/bmi5750_st_rctd
+  - r-seurat=5.5.0
+  - r-seuratobject=5.4.0
