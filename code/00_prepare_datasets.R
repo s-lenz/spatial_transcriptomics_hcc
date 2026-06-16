@@ -6,7 +6,7 @@ suppressPackageStartupMessages({
   library(dplyr)
 })
 
-source("utils.R")
+source("code/utils.R")
 set.seed(123)
 
 
@@ -14,7 +14,7 @@ set.seed(123)
 # --- Get raw counts, tissue images and sample metadata using GEOQuery ---
 
 gse <- "GSE281759"
-save_dir <- file.path("../data", gse)
+save_dir <- file.path("data", gse)
 dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Get metadata that contains phenotypical data + other info about Visium Samples
@@ -99,4 +99,4 @@ merged <- merge(
   objects.list[[1]],
   y = objects.list[-1]
 )
-saveRDS(merged, file.path("../data/merged_spatial_data.RDS"))
+saveRDS(merged, file.path("data/merged_spatial_data.RDS"))
