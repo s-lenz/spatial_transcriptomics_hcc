@@ -1,14 +1,14 @@
+# R version - 4.5.3
 suppressPackageStartupMessages({
-  library(GEOquery)
-  library(utils)
-  library(R.utils)
-  library(Seurat)
-  library(dplyr)
+  library(GEOquery) # 2.78.0
+  library(utils) # 4.5.3
+  library(R.utils) # 2.13.0
+  library(Seurat) # 5.5.0
+  library(dplyr) # 1.2.1
 })
 
 source("code/utils.R")
 set.seed(123)
-
 
 ## Spatial dataset: GSE281759
 # --- Get raw counts, tissue images and sample metadata using GEOQuery ---
