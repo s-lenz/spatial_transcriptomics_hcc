@@ -1,0 +1,26 @@
+---
+title: "bmi5750_final_file"
+output: html_document
+---
+
+``` {bash Environment setup, eval=FALSE}
+conda create -f envs/bmi5750_st_rctd.yml
+conda activate bmi5750_st_rctd
+```
+
+``` {r Load packages, message=FALSE, warning=FALSE}
+
+```
+
+
+``` {  QC query dataset}
+
+```
+
+``` {r QC reference dataset}
+
+```
+
+``` {r Run deconvolution}
+
+```
