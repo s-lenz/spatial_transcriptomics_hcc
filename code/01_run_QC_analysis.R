@@ -137,3 +137,5 @@ wrap_plots(p1, p2, ncol = 2, byrow = F)
 
 DimPlot(merged, reduction = "umap.harmony", group.by = c("harmony_clusters"), 
         label = T, label.box = T, label.size = 4) + NoLegend()
+
+saveRDS(merged, file = file.path("data", "merged_spatial_processed_harmony.RDS"))
