@@ -1,3 +1,16 @@
+suppressPackageStartupMessages({
+  library(utils) # 4.5.3
+  library(R.utils) # 2.13.0
+  library(Seurat) # 5.5.0
+  library(dplyr) # 1.2.1
+  library(patchwork) # 1.3.2
+  library(ggplot2) # 4.0.3
+  library(spacexr)
+})
+
+source("code/utils.R")
+set.seed(123)
+
 ## Load data files
 # spatial
 merged <- readRDS(file.path("data", "merged_spatial_processed_harmony.RDS"))
