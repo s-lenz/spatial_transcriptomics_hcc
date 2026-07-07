@@ -34,7 +34,7 @@ merged <- NormalizeData(merged, assay = "Spatial")
 merged <- CellCycleScoring(object = merged,  
                           s.features = s.genes, 
                            g2m.features = g2m.genes, 
-                           slot = "counts")
+                           slot = "counts") # why counts and not data?
 
 # Re-split layers for the multisample SCTransform
 merged[["Spatial"]] <- split(merged[["Spatial"]], f = merged$orig.ident)
@@ -101,9 +101,18 @@ gc()
 merged <- RunPCA(merged, verbose = F) # Elbow plot?
 
 # Unintegrated data processing
+# this failed for me with this error:
+## Error in `[[<-.data.frame`(`*tmp*`, col, value = integer(0)) : replacement has 0 rows, data has 25096
 merged <- FindNeighbors(merged, dims = 1:30, reduction = "pca", verbose = F) %>%
   FindClusters(resolution = c(0.2, 0.3), cluster.name = "unintegrated_clusters", verbose = F) %>%
   RunUMAP(dims = 1:30, reduction = "pca", reduction.name = "umap.unintegrated", verbose = F)
+
+# this fixed it but does not include the unintegrated clusters
+# merged <- FindNeighbors(merged, dims = 1:30, reduction = "pca", verbose = FALSE)
+# merged <- FindClusters(merged, resolution = c(0.2, 0.3), verbose = FALSE)
+# creates SCT_snn_res.0.2 and SCT_snn_res.0.3
+# merged <- RunUMAP(merged, dims = 1:30, reduction = "pca",
+                  #reduction.name = "umap.unintegrated", verbose = FALSE)
 
 DimPlot(merged, reduction = "umap.unintegrated", group.by = c("orig.ident", "unintegrated_clusters"))
 
