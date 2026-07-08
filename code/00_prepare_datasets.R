@@ -5,16 +5,21 @@ suppressPackageStartupMessages({
   library(R.utils) # 2.13.0
   library(Seurat) # 5.5.0
   library(dplyr) # 1.2.1
+  library(here) # 1.0.2
 })
 
-source("code/utils.R")
+project_root <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+if (getwd() != project_root) {
+  setwd(project_root)
+}
+
+source(here("code","utils.R"))
 set.seed(123)
 
 ## Spatial dataset: GSE281759
-# --- Get raw counts, tissue images and sample metadata using GEOQuery ---
 
 gse <- "GSE281759"
-save_dir <- file.path("data", gse)
+save_dir <- here("data", gse)
 dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
 
 # Get metadata that contains phenotypical data + other info about Visium Samples
@@ -99,4 +104,4 @@ merged <- merge(
   objects.list[[1]],
   y = objects.list[-1]
 )
-saveRDS(merged, file.path("data/merged_spatial_data.RDS"))
+saveRDS(merged, here("data","merged_spatial_data.RDS"))

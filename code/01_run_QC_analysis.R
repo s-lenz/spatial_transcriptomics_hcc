@@ -7,13 +7,20 @@ suppressPackageStartupMessages({
   library(dplyr) # 1.2.1
   library(patchwork) # 1.3.2
   library(ggplot2) # 4.0.3
+  library(clustree) # 0.5.1
+  library(here) # 1.0.2
 })
 
-source("code/utils.R")
+project_root <- dirname(dirname(rstudioapi::getActiveDocumentContext()$path))
+if (getwd() != project_root) {
+  setwd(project_root)
+}
+
+source(here("code","utils.R"))
 set.seed(123)
 
 # Read Seurat object with spatial data
-merged <- readRDS(file.path("data","merged_spatial_data.RDS"))
+merged <- readRDS(here("data","merged_spatial_data.RDS"))
 
 # Add QC metrics
 merged$log10_nCount_Spatial <- log(merged$nCount_Spatial, 10)
@@ -138,4 +145,4 @@ wrap_plots(p1, p2, ncol = 2, byrow = F)
 DimPlot(merged, reduction = "umap.harmony", group.by = c("harmony_clusters"), 
         label = T, label.box = T, label.size = 4) + NoLegend()
 
-saveRDS(merged, file = file.path("data", "merged_spatial_processed_harmony.RDS"))
+saveRDS(merged, file = here("data", "merged_spatial_processed_harmony.RDS"))
