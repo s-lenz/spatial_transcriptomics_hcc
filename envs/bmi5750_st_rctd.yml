@@ -1,13 +1,15 @@
+# conda env create -f envs/bmi5750_st_rctd.yml
 name: bmi5750_st_rctd
 channels:
   - bioconda
   - conda-forge
 dependencies:
   - bioconductor-geoquery=2.78.0
-  - bioconductor-spacexr=1.2.0 #??
+  - bioconductor-spacexr=1.2.0
   - bioconductor-glmgampoi=1.22.0
   - r-base=4.5.3
   - r-essentials=4.5
+  - r-devtools=2.5.0
   - r-r.utils=2.13.0
   - r-seurat=5.5.0
   - r-seuratobject=5.4.0
@@ -15,3 +17,15 @@ dependencies:
   - r-usethis=3.2.1
   - r-harmony=2.0.5
   - r-clustree=0.5.1
+  - r-rcppparallel=5.1.11_2
+  - r-rfast=2.1.5.2
+  - r-doparallel=1.0.17
+  - r-compquadform=1.4.4
+  - r-mathjaxr=2.0_0
+  - r-metadat=1.6_0
+  - r-fields=17.3
+  - r-mapproj=1.2.12
+  - r-dichromat=2.0_0.1
+  - r-metafor=5.0_1
+  - r-locfdr=1.1_8
+  - r-pals=1.10
