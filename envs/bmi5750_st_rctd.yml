@@ -29,3 +29,5 @@ dependencies:
   - r-metafor=5.0_1
   - r-locfdr=1.1_8
   - r-pals=1.10
+  - r-tca=1.2.1
+  - r-pheatmap=1.0.13
