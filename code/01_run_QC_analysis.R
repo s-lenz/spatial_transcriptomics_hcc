@@ -126,8 +126,9 @@ for (res in cluster_resolutions) {
 clustree(merged, prefix = "unintegrated_clusters_")
 
 ## Let's pick 0.2 cluster resolution as higher stability
+merged$unintegrated_clusters <- merged$unintegrated_clusters_0.2
 p1 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("orig.ident"), label.size = 2)
-p2 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("unintegrated_clusters_0.2"), 
+p2 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("unintegrated_clusters"), 
               label = T, label.box = T, label.size = 4) + NoLegend()
 wrap_plots(p1, p2, ncol = 2, byrow = F)
 
@@ -163,8 +164,9 @@ for (res in cluster_resolutions) {
 clustree(merged, prefix = "harmony_clusters_")
 
 # We will keep resolution 0.2 for harmony clusters
+merged$integrated_clusters <- merged$harmony_clusters_0.2
 p1 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("orig.ident"), label.size = 2)
-p2 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("harmony_clusters_0.2"), 
+p2 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("integrated_clusters"), 
         label = T, label.box = T, label.size = 4) + NoLegend()
 wrap_plots(p1, p2, ncol = 2, byrow = F)
 
