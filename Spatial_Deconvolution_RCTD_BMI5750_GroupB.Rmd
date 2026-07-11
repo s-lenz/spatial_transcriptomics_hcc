@@ -1,0 +1,676 @@
+---
+title: "Spatial Deconvolution with RCTD package"
+author: "Group B"
+
+output:
+  html_document:
+    highlight: kate
+    self_contained: yes
+    theme: yeti
+    toc: yes
+  word_document:
+    toc: yes
+  pdf_document:
+    keep_tex: yes
+    toc: yes
+---
+
+# Introduction
+In this tutorial we will go through the process of spots deconvolution on 10X Visium spatial example dataset using RCTD algorithm (part of spacexr package)  
+[spacexr Github repository](https://github.com/dmcable/spacexr)    
+* Pipeline code and additional data to reproduce this tutorial also available in the [Github repository](https://github.com/s-lenz/spatial_transcriptomics_hcc)     
+** Preprocessing code for scRNAseq reference dataset is available at the request from Dr.Roychowdhury's OSU lab (contact person - Sidney Lenz).
+**Approximate execution time: ** (MacBook Air M2, Mem 16Gb)
+
+## Used datasets
+
+### Query spatial dataset
+10X Genomics Visium (standard resolution) containing 17 liver samples from 4 donors with Hepatocellular carcinoma (HCC). 16 tissue slides present mainly tumor sites and 1 tissue presents normal liver (A009N). Total spatial spots: 25,096   
+GEO Id: [GSE281759](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE281759)
+
+### Reference scRNAseq dataset
+Single-cell transcriptomes for 10 HCC patients from 4 sites: primary tumor, portal vein tumor thrombus (PVTT), metastatic lymph node and non-tumor liver. For the purposes of this tutorial, we kept only primary tumor and non-tumor liver sites. Total number of cells in the final dataset: 54,544. Final cell type annotations were obtained with scType (known markers) and SingleR (Human Liver Atlas) algorithms.   
+GEO Id: [GSE149614](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE149614)
+
+# Tutorial Steps
+
+## Environment setup
+We start with managing the computational environment. Instead of directly installing the required packages, which might introduce internal conflicts and break dependencies for other projects, we recommend using an isolated Conda environment to manage packages independently of the system R.   
+More details on how to start using Conda environments are available here:
+[Conda documentation](https://docs.conda.io/projects/conda/en/latest/index.html)
+
+``` {bash Environment setup, eval=FALSE}
+conda create -f envs/bmi5750_st_rctd.yml
+conda activate bmi5750_st_rctd
+```
+
+``` {r, eval=TRUE}
+start_time <- Sys.time()
+```
+
+Load all packages required for the tutorial
+``` {r Load packages, message=FALSE, warning=FALSE}
+# R version - 4.5.3
+suppressPackageStartupMessages({
+  library(GEOquery) # 2.78.0
+  library(utils) # 4.5.3
+  library(R.utils) # 2.13.0
+  library(Seurat) # 5.5.0
+  library(SeuratObject) # 5.4.0
+  library(dplyr) # 1.2.1
+  library(here) # 1.0.2
+  library(patchwork) # 1.3.2
+  library(ggplot2) # 4.0.3
+  library(clustree) # 0.5.1
+  library(spacexr) # 2.2.1
+  library(SpatialExperiment) # 1.40.0
+  library(SummarizedExperiment) # 1.20.0
+  library(data.table) # 1.18.4
+  library(pheatmap) # 1.0.13
+  library(Polychrome) # 1.6.1
+  library(cowplot) # 1.2.0
+  library(TCA) # 1.2.1
+  library(Matrix) # 1.7-5
+  library(stringr) # 1.6.0
+  library(tibble) # 3.3.1
+  library(tidyr) # 1.3.2
+})
+
+# Set project directory as working directory
+isRStudio <- (Sys.getenv("RSTUDIO") == "1")
+if (isRStudio) {
+  project_root <- dirname(rstudioapi::getActiveDocumentContext()$path)
+    if (getwd() != project_root) {
+      setwd(project_root)
+    }
+}
+
+# Load additional utilies and visualization functions
+source(here("code","utils.R"))
+
+# Set seed for reproducability
+set.seed(123)
+```
+
+## Input data preparation
+Spot deconvolution uses transcriptional profiles of cell types from single-cell RNA data reference to estimate their proportions in a spatial dataset. Therefore, we need to ensure that both single-cell (reference) and spatial (query) data come from similar biological sources (ideally, the same donors): species, tissue type, disease and etc. If any cell type is missing from the reference, the RCTD algorithm won't be able to predict its proportions in the query data
+
+### Reference (scRNAseq) dataset
+For this tutorial, we do not include details on the preprocessing of single-cell RNA-seq data. The reference dataset must contain raw (unnormalized, untransformed) counts and metadata with cell-type annotations for each cell
+
+``` {r Load reference dataset}
+reference_data <- readRDS(here("data","GSE149614_final_ref.RDS"))
+# Replacing unprocessable symbols in cell type names
+reference_data$custom_celltype <- gsub("/","-",reference_data$custom_celltype)
+```
+
+### Query (Visium spatial) dataset
+
+**Data preparation**    
+
+- Download metadata, sequencing data and spatial images (CytAssist) from supplementary files in GEO using GEOquery package
+- Reorganize and modify files with tissue images and sequenced data to make them readable by Seurat package
+- Read individual samples into Seurat objects and merge them into single Seurat dataset
+
+``` {r Download and prepare query data, warning=FALSE}
+gse <- "GSE281759"
+save_dir <- here("data", gse)
+dir.create(save_dir, recursive = TRUE, showWarnings = FALSE)
+
+# Get metadata that contains phenotypical data + other info about Visium Samples
+geo_obj <- getGEO(gse)[[1]]
+metadata <- pData(geo_obj)
+# Save file with metadata so we can load it in later if we need
+write.csv(metadata, file.path(save_dir, "GSE281759_metadata.csv"))
+
+# Get Expression data files (raw counts) and tissue images (CytAssist)
+supp_files <- getGEOSuppFiles(gse,baseDir = "data")
+
+# Unpack main data
+untar(file.path(save_dir,"GSE281759_RAW.tar"), 
+      exdir = file.path(save_dir,"GSE281759_RAW"))
+
+# Unpack only spatial image files (keep GEX as gz files)
+for (filename in list.files(file.path(save_dir,"GSE281759_RAW"),
+                            full.names = TRUE)) {
+  if (!grepl(pattern = "(matrix.mtx|barcodes.tsv|features.tsv)",
+             x = filename)) {
+    gunzip(filename)
+  }
+}
+
+# Reorganize spatial data by sample (Seurat expected inputs)
+old_spatial_folder <- file.path(save_dir, "GSE281759_RAW")
+all_files <- list.files(old_spatial_folder, full.names = T)
+sample_list <- unique(sapply(list.files(old_spatial_folder), 
+                             FUN = extract_sample_names))
+gsm_list <- unique(sapply(list.files(old_spatial_folder), 
+                          FUN = extract_gsm_id))
+
+for (idx in seq_along(sample_list)) {
+  sample_name <- sample_list[idx]
+  gsm_name <- gsm_list[idx]
+  new_spatial_folder <- file.path(old_spatial_folder, sample_name)
+  # Create sample target folder
+  dir.create(file.path(new_spatial_folder,"spatial"), 
+             recursive = TRUE, showWarnings = FALSE)
+  dir.create(file.path(new_spatial_folder,"gex"), 
+             recursive = TRUE, showWarnings = FALSE)
+  
+  # Make a list of samples files to move
+  files_to_move <- all_files[grepl(sample_name,all_files)]
+  new_names <- gsub(paste0(gsm_name,"_",sample_name,"_"),"",files_to_move)
+  
+  # Move GEX files
+  selected_files <- grepl("(matrix.mtx|barcodes.tsv|features.tsv)",
+                          x = files_to_move)
+  files_to_move_gex <- files_to_move[selected_files]
+  target_paths_gex <- file.path(new_spatial_folder, 
+                                "gex",
+                                basename(new_names[selected_files]))
+  file.rename(from = files_to_move_gex, to = target_paths_gex)
+  
+  # Move Spatial files
+  files_to_move_st <- files_to_move[!selected_files]
+  target_paths_st <- file.path(new_spatial_folder, 
+                               "spatial", 
+                               basename(new_names[!selected_files]))
+  file.rename(from = files_to_move_st, to = target_paths_st)
+}
+
+# Read 10X Visium objects to Seurat
+objects.list <- list()
+input_filepath <- file.path(save_dir, "GSE281759_RAW")
+seurat_savedir <- file.path(save_dir, "seurat_objects")
+dir.create(seurat_savedir, recursive = TRUE, showWarnings = FALSE)
+for (sample_name in sample_list) {
+  st_object <- Load10X_Visium(file.path(input_filepath, sample_name, "gex"),
+                              file.path(input_filepath, sample_name, "spatial"),
+                              sample_id = sample_name)
+  sample_metadata <- metadata[metadata$description == sample_name,]
+  st_object$Sex <- as.character(sample_metadata["Sex:ch1"])
+  st_object$Tumour_Stage <- as.character(sample_metadata["tumour stage:ch1"])
+  saveRDS(st_object, file.path(seurat_savedir,paste0(sample_name,".RDS")))
+  objects.list[[sample_name]] <- st_object
+}
+
+# Merge and save intermediate Seurat object
+merged <- merge(
+  objects.list[[1]],
+  y = objects.list[-1]
+)
+saveRDS(merged, here("data","merged_spatial_data.RDS"))
+```
+
+**Data quality control**
+
+- Calculate mitochondrial content (% of mitochondrial gene reads in total reads)    
+- Calculate cell cycle genes scores   
+
+``` {r QC and preprocessing query dataset #1}
+# Read Seurat object with spatial data (if necessary)
+# merged <- readRDS(here("data","merged_spatial_data.RDS"))
+
+# Add useful QC metrics
+merged$log10_nCount_Spatial <- log(merged$nCount_Spatial, 10)
+merged$log10_nFeature_Spatial <- log(merged$nFeature_Spatial, 10)
+merged$percent.mt <- PercentageFeatureSet(merged, pattern = "^MT-")
+
+# Get predefined list of cell cycle marker genes
+s.genes <- cc.genes.updated.2019$s.genes
+g2m.genes <- cc.genes.updated.2019$g2m.genes
+
+## Make temporary joined object
+merged <- JoinLayers(merged, assay = "Spatial")
+
+# Log-normalize the joined RNA assay for CellCycleScoring
+merged <- NormalizeData(merged, 
+                        assay = "Spatial", 
+                        verbose = FALSE)
+
+# Calculate cell cycle scores
+merged <- CellCycleScoring(object = merged,  
+                          s.features = s.genes, 
+                           g2m.features = g2m.genes, 
+                           slot = "counts") # why counts and not data?
+
+# Re-split layers for the multisample SCTransform
+merged[["Spatial"]] <- split(merged[["Spatial"]], f = merged$orig.ident)
+gc()
+```
+
+Let's look at QC plots to get better understanding of possible thresholds
+
+Number of spots before QC: `r format(ncol(merged), big.mark = ",")`
+
+List of spatial tissue images in the merged spatial dataset: `r names(merged@images)`
+
+**Number of UMIs: violin plot and spatial  (sample A009N)**
+``` {r QC and preprocessing query dataset #2}
+plot1 <- VlnPlot(merged, 
+                 features = "log10_nCount_Spatial", 
+                 group.by = "orig.ident",
+                 layer = "counts",
+                 pt.size = 0) + 
+  NoLegend()
+
+selected_sample <- "A009N"
+plot2 <- SpatialFeaturePlot(merged, 
+                            features = "log10_nCount_Spatial", 
+                            images = selected_sample) + 
+  labs(title = selected_sample) + 
+  theme(legend.position = "right", 
+        plot.title = element_text(hjust = 0.5, face="bold"))
+wrap_plots(plot1, plot2)
+```
+
+**Violin plots:**   
+
+- Number of genes   
+- Mitochondrial content (percent)   
+- Cell cycle scores   
+
+``` {r QC and preprocessing query dataset #3}
+## Number of genes + MT content
+VlnPlot(merged, 
+        features = c("nFeature_Spatial","percent.mt"), 
+        layer = "counts",
+        group.by = "orig.ident",
+        pt.size = 0,) + 
+  NoLegend()
+
+## Cell cycle scores
+VlnPlot(merged, 
+        features = c("S.Score","G2M.Score"), 
+        layer = "counts",
+        group.by = "orig.ident",
+        pt.size = 0,) + 
+  NoLegend()
+```
+
+Based on QC plots we are going to remove all spots with log10(nUMIs) < 3 and MT content > 10%
+```{r QC and preprocessing query dataset #4, warning=FALSE}
+merged <- subset(merged, log10_nCount_Spatial >= 3 & percent.mt <= 10)
+```
+
+Number of spots after QC: `r format(ncol(merged), big.mark = ",")`
+
+**Data processing**
+
+Now we can perform typical processing pipeline for single cell transcriptomics data (ignoring spatial context)   
+
+- SCT normalization and tranformation (regress out number of genes and MT content)   
+- PCA calculation   
+- Neighbors search in PCA space   
+- UMAP dimensional reduction   
+- Unsupervised clustering   
+
+```{r QC and preprocessing query dataset #5}
+
+# Apply SCTransform on each sample layer
+## If getting memory limit error - increase mem.maxVSize()
+## usethis::edit_r_environ() to open .Renviron
+## R_MAX_VSIZE=50Gb
+
+merged <- SCTransform(merged, 
+                      layer = "counts",
+                      vst.flavor = "v2", 
+                      assay = "Spatial",
+                      vars.to.regress = c("nFeature_Spatial", 
+                                          "percent.mt"),
+                      verbose = FALSE)
+gc()
+merged <- RunPCA(merged, verbose = F)
+
+# Unintegrated data processing
+merged <- FindNeighbors(merged, dims = 1:30, reduction = "pca", verbose = F) %>%
+  RunUMAP(dims = 1:30, 
+          reduction = "pca", 
+          reduction.name = "umap.unintegrated", 
+          verbose = FALSE)
+
+# Run each cluster resolution independently to enable custom names
+cluster_resolutions <- seq(0.1, 1.0, 0.1)
+for (res in cluster_resolutions) {
+  merged <- FindClusters(merged,
+                         resolution = res, 
+                         cluster.name = paste0("unintegrated_clusters_",res), 
+                         verbose = FALSE)
+}
+# Cluster tree plot to identify optimal
+clustree(merged, prefix = "unintegrated_clusters_")
+```
+
+Based on this cluster tree we will pick 0.2 cluster resolution as it shows the highest stability
+
+```{r QC and preprocessing query dataset #6}
+
+merged$unintegrated_clusters <- merged$unintegrated_clusters_0.2
+# UMAP by sample
+p1 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("orig.ident"), label.size = 2)
+# UMAP by unsupervised cluster
+p2 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("unintegrated_clusters"), 
+              label = T, label.box = T, label.size = 4) + NoLegend()
+wrap_plots(p1, p2, ncol = 2, byrow = F)
+
+```
+
+From those UMAPs we see strong batch effect for spatial samples. Therefore, we are going to run integrations with Seurat wrapper for Harmony package
+
+```{r QC and preprocessing query dataset #7}
+# Integrated (Harmony) data processing
+merged <- IntegrateLayers(object = merged, 
+                          method = HarmonyIntegration, 
+                          normalization.method = "SCT",
+                          orig.reduction = "pca",
+                          new.reduction = "integrated.harmony", 
+                          verbose = FALSE)
+merged <- FindNeighbors(merged, 
+                        reduction = "integrated.harmony", 
+                        dims = 1:30, 
+                        verbose = FALSE) %>%
+  RunUMAP(reduction = "integrated.harmony", 
+          dims = 1:30, 
+          reduction.name = "umap.harmony", 
+          verbose = FALSE)
+
+# Comparing sample mixing between unintegrated and integrated with Harmony versions
+p1 <- DimPlot(merged, reduction = "umap.unintegrated", group.by = c("orig.ident"), label.size = 2)
+p2 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("orig.ident"), label.size = 2)
+wrap_plots(p1, p2, ncol = 2, byrow = F)
+```
+
+As we can see, Harmony was able to remove technical batch effect and reveal real biological signals
+
+```{r QC and preprocessing query dataset #8}
+
+# Find clusters on Harmony embedding
+for (res in cluster_resolutions) {
+  merged <- FindClusters(merged,
+                         resolution = res, 
+                         cluster.name = paste0("harmony_clusters_",res), 
+                         verbose = FALSE)
+}
+# Cluster tree for harmony integrated clusters
+clustree(merged, prefix = "harmony_clusters_")
+
+```
+
+Similarly to unintegrated data, it looks like 0.2 cluster resolution still shows the most stability
+
+```{r QC and preprocessing query dataset #9}
+merged$integrated_clusters <- merged$harmony_clusters_0.2
+p1 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("orig.ident"), label.size = 2)
+p2 <- DimPlot(merged, reduction = "umap.harmony", group.by = c("integrated_clusters"), 
+        label = T, label.box = T, label.size = 4) + NoLegend()
+wrap_plots(p1, p2, ncol = 2, byrow = F)
+
+# Save intermediate results
+saveRDS(merged, file = here("data", "merged_spatial_processed_harmony.RDS"))
+```
+
+Now, after QC and initial data exploratory analysis, we can proceed with spot deconvolution of spatial query data with RCTD algorithm
+
+## Spot deconvolution with RCTD
+
+Required algorithm inputs   
+
+- raw counts from reference data   
+- cell type annotations for each cell in reference data   
+- raw counts from query data and spatial spot coordinated on tissue slide   
+
+``` {r Run RCTD deconvolution, message=FALSE, warning=FALSE}
+# Prepare reference dataset with cell type annotations (scRNAseq)
+# Extract raw counts
+counts <- SeuratObject::LayerData(reference_data, 
+                                  assay = "RNA", 
+                                  layer = "counts")
+# Get factorized vector with cell types annotations
+cell_types <- as.factor(reference_data$custom_celltype)
+names(cell_types) <- colnames(reference_data)
+n_cell_types <- length(levels(cell_types))
+# Create RCTD reference
+rctd_reference <- Reference(counts, 
+                            cell_types,
+                            reference_data$nCount_RNA)
+
+
+sample_names <- unique(merged$orig.ident)
+all_proportions <- list()
+# For each sample, run RCTD algorithm and obtain estimated cell type proportions
+# Outputs saved to log file
+for (sample_name in sample_names) {
+  {
+    rctd_log <- file(here("logs","rctd_run.log"), open = "wt")
+    sink(rctd_log)
+    sink(rctd_log, type = "message")
+    
+    rctd_start_time <- Sys.time()
+    # Filter merged Seurat object
+    selected_sample_data <- subset(merged, orig.ident == sample_name)
+    # Prepare query dataset (spatial)
+    # Extract raw counts
+    spatial_counts <- SeuratObject::LayerData(selected_sample_data, 
+                                              assay = "Spatial", 
+                                              layer = "counts")
+    # Get spot coordinates
+    tissue_positions <- GetTissueCoordinates(selected_sample_data, 
+                                             image = Images(selected_sample_data)[1]) %>% 
+      select(x,y)
+    # Create RCTD spatial data
+    rctd_spatial <- SpatialRNA(tissue_positions,
+                               counts = spatial_counts, 
+                               nUMI = selected_sample_data$nCount_Spatial)
+    # Create RCTD object from reference and spatial data
+    # You can specify number of core to enable parallelization
+    rctd_obj <- create.RCTD(rctd_spatial, rctd_reference, max_cores = 8)
+    # Run RCTD deconvolution in full mode 
+    # We are assuming that spot can contain any number of reference cell type
+    rctd_obj <- run.RCTD(rctd_obj, doublet_mode = "full")
+    gc()
+    
+    # Get estimated RCTD model weights
+    sample_proportions <- rctd_obj@results$weights 
+    # Normalize weights to obtain proportions (sum to 100%)
+    sample_proportions <- sweep(sample_proportions, 1, 
+                                rowSums(sample_proportions), `/`) %>% 
+      as.data.frame()
+    # Save sample proportions
+    all_proportions[[sample_name]] <- sample_proportions
+    rctd_end_time <- Sys.time()
+    print(paste("Sample", sample_name, "finished in",(rctd_end_time-rctd_start_time)))
+    sink(type = "message")
+    sink()
+  }
+}
+
+# Merge all proportions into one table and save results
+rctd_proportions <- bind_rows(all_proportions)
+saveRDS(rctd_proportions, here("results", "rctd_proportions.RDS"))
+
+# Add estimated proportions to merged spatial object metadata and save into new RDS object
+# We expect that order of rows did not changed, but we can always double check
+# all(rownames(merged@meta.data) == rownames(rctd_proportions))
+# TRUE
+merged <- AddMetaData(merged, metadata = rctd_proportions)
+saveRDS(merged, file = here("data", "merged_spatial_annotated.RDS"))
+```
+
+## Examples of downstream analysis for deconvolution results
+
+Here we will demonstrate few analysis and visualizations that might be useful to understand obtained deconvolution results.
+
+**Plot #1. Estimated proportions per cell types for each spatial spot (by sample)**
+
+```{r Downstream analysis #1}
+# Load spatial data with deconvolution results (if needed)
+# merged <- readRDS(here("data", "merged_spatial_annotated.RDS"))
+# Get samples list
+sample_names <- unique(merged$orig.ident)
+
+# Store proportions as data.frame
+total_columns <- ncol(merged@meta.data)
+all_proportions <- merged@meta.data[(total_columns-9):total_columns]
+cell_types <- colnames(all_proportions)
+all_proportions$sample_name <- merged$orig.ident
+
+# Plot proportions on spatial tissue slides (by sample)
+for (selected_sample in sample_names) {
+  
+  # Get spot coordinates for selected sample
+  tissue_positions <- GetTissueCoordinates(merged, 
+                                           image = selected_sample) %>% 
+    select(x,y)
+  # Obtain proportions for selected sample
+  sample_proportions <- all_proportions %>% filter(sample_name == selected_sample) %>%
+    select(all_of(cell_types))
+  
+  p <- plot_Proportions_RCTD(tissue_positions, 
+                              sample_proportions, 
+                              paste0("Sample ID: ", selected_sample))
+  if (sample_name == "B0013T1") {
+    plot1 <- p
+  }
+  # Save plot
+  ggsave(here("results","plots",paste0(selected_sample,"_rctd_proportions.png")),p,
+         width = 14, height = 15, dpi = 150, units = "in", device='png')
+  
+}
+
+print(plot1)
+```
+
+As we expected, the majority of the spots contain tumor hepatocytes. However, we also see a few sites enriched with fibroblasts and immune cells (myeloid and lymphocytes) where the percentage of tumor hepatocytes is reduced. We could suggest that those tissue immune sites are highly activated, potentially affecting tumor cells
+
+**Plot #2. Heatmap with proportions per cell (by sample)**
+
+```{r Downstream analysis #2}
+# Get plot for each sample
+for (selected_sample in sample_names) {
+  # Obtain sample proportion matrix
+  sample_proportions <- all_proportions %>% 
+    filter(sample_name == selected_sample) %>% 
+    select(all_of(cell_types))
+  # Plot spot proportions heatmap
+  p <- plot_Heatmap_RCTD(sample_proportions, selected_sample)
+  if (sample_name == "B0013T1") {
+    plot2 <- p
+  }
+  # Save plot
+  ggsave(here("results","plots",paste0(selected_sample,"_rctd_heatmap.png")),p,
+         width = 7, height = 6, dpi = 150, units = "in", device='png')
+}
+print(plot2)
+```
+
+The heatmap verifies our visual findings from the previous plot and demonstrates a negative correlation between tumor hepatocytes and immune cells (mainly myeloid)
+
+**Plot #3. Spatial slides with annotated major cell types per spot**
+
+```{r Downstream analysis #3}
+
+# Assign major cell type for each spot (cell type with highest proportion)
+merged@meta.data <- merged@meta.data %>%
+  mutate(main_cell_type = names(.[cell_types])[max.col(.[cell_types], ties.method = "first")])
+
+# Prepare plot and save it
+p <- plotSpatialDim_by_celltypes(merged, 
+                            "orig.ident", 
+                            cell_types, pt.size = 4)
+ggsave(here("results","plots","cell_types_spatial.png"),p,
+       width = 14, height = 6, dpi = 150, units = "in", device='png')
+
+print(p)
+
+```
+
+As we see majority of samples contain mostly tumor cells, but interestingly few samples, for example B0013T4 and C008T1, also shows large adjacent normal liver tissue spots. Such areas can be potentially use for further analysis of tumor microenvironments and spatial niches 
+
+**Plot #4. Violin plots with FGF19 total expression vs expression by cell type (based on proportions)**
+
+```{r Downstream analysis #4}
+# Naive gene expression imputation based on estimated proportion matrix
+# Get normalized (for visualization) expression data
+spatial_counts_sct <- as.matrix(LayerData(merged, 
+                                      assay = "SCT", 
+                                      layer = "data"))
+# Extract proportions for each estimated cell type
+# Then multiply GEX matrix by diagonalized proportions to estimate gene expression per cell type
+# Finally save estimated matrix to new assay
+for (target_cell_type in cell_types) {
+  print(target_cell_type)
+  props_vector <- all_proportions[, target_cell_type]
+  weight_diag <- Diagonal(x = props_vector)
+  pseudo_expr_matrix <- spatial_counts_sct %*% weight_diag
+  colnames(pseudo_expr_matrix) <- colnames(spatial_counts_sct)
+  rownames(pseudo_expr_matrix) <- rownames(spatial_counts_sct)
+  assay_name <- paste0("Pseudo_",
+                       str_replace_all(target_cell_type, " ", "_"),
+                       "_SCT")
+  merged[[assay_name]] <- CreateAssay5Object(data = pseudo_expr_matrix)
+}
+
+# Prepare violin plot with total vs cell type expression for selected gene
+p <- plotGEX_by_celltypes(merged, 
+                     "FGF19", 
+                     "orig.ident", 
+                     cell_types)
+ggsave(here("results","plots","FGF19_GEX_by_celltype.png"),p,
+       width = 18, height = 10, dpi = 150, units = "in", device='png')
+print(p)
+
+```
+
+This plot shows effects of deconvolution on GEX levels. We selected the FGF19 (Fibroblast Growth Factor 19) gene, which is involved in liver metabolic pathways and is linked to HCC tumor progression and poor therapeutic prognosis. Deconvolution restores correct expression levels for this gene, as only a few spots in the original data show high expression compared to the estimated expression of FGF19 in tumor hepatocytes.
+
+However, for this analysis we used a naive proportional allocation approach for gene expression imputation that doesn't account for differences in gene expression rates. For proper downstream analysis, we recommend using other methods, for example, CARD (for R) or DestVI (for Python)
+
+**Plot #5. Heatmap illustrating unsupervised clusters enrichment for estimated cell types**
+
+```{r Downstream analysis #5}
+# Collect median proportions per cluster in each sample
+median_proportions <- merged@meta.data %>% 
+  group_by(integrated_clusters, orig.ident) %>%
+  summarize(across(all_of(cell_types), median, 
+                   .names = "{.col}"), 
+            .groups = "drop")
+
+# Build heatmap of cell type associations with unsupervised cluster
+p <- plotClusterHeatmap_by_celltype(median_proportions,
+                               cell_types,
+                               n_samples = length(unique(merged$orig.ident)))
+
+ggsave(here("results","plots","cluster_celltypes_heatmap.png"),p,
+       width = 8, height = 3, dpi = 150, units = "in", device='png')
+
+print(p)
+
+```
+
+As we see, there is no clear association between integrated unsupervised clusters and deconvolution results. Potentially, it could be explained that spots primarily contain tumor hepatocytes, with other cell types present in minimal proportions. Therefore, there is no statistical power to form neighborhoods without tumor cells
+
+# Conclusions
+In this tutorial, we showed that deconvolution is a required analytical step when working with data from 10X Visium (standard resolution) or similar spatial technologies (such as Stereo seq v1), which do not guarantee single-cell resolution of detected spatial spots.
+
+Using references from the same biological background (species, tissue, disease) allows for precise estimation of cell-type proportions per spot. We saw that for cancer samples, deconvolution enables detection of tumor niches with a distinct border between tumor, fibroblasts, and normal tissue, which would otherwise be hard to identify.
+
+The RCTD algorithm (with its recent Python implementation, rctd-py) is considered a best practice due to its high accuracy in estimating proportions, including rare cell types, and low resource requirements. However, the R implementation of the RCTD algorithm for deconvolution outside of "doublets" mode is limited. It forced us to implement our custom downstream analysis and visualization functions. Additionally, there is a functional difference between the GitHub and Bioconductor versions of the spacexr package
+
+``` {r, eval=TRUE}
+end_time <- Sys.time()
+```
+
+**Execution time**
+```{r, eval=TRUE}
+end_time - start_time
+```
+
+
+# References
+[1] Cable, Dylan M., et al. "Robust decomposition of cell type mixtures in spatial transcriptomics." Nature Biotechnology 40.4 (2022): 517-526.
+
+[2] Seshachalam, V. P. et al. "Multiomics and multi-region spatial transcriptome analysis reveal cellular networks and pathways associated with HCC recurrence." JHEP Reports 8, 101790 (2026).
+
+[3] Lu, Y. et al. "A single-cell atlas of the multicellular ecosystem of primary and metastatic hepatocellular carcinoma." Nature Communications 13, 4594 (2022).
+
+[4] Jiang, S. et al. "Characterization of the distinct immune microenvironments between hepatocellular carcinoma and intrahepatic cholangiocarcinoma." Cancer Letters 588, 216799 (2024).

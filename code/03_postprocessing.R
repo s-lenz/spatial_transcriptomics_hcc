@@ -25,18 +25,18 @@ if (getwd() != project_root) {
 source(here("code","utils.R"))
 set.seed(123)
 
-annotated_spatial_data <- readRDS(here("data", "merged_spatial_annotated.RDS"))
-sample_names <- unique(annotated_spatial_data$orig.ident)
+merged <- readRDS(here("data", "merged_spatial_annotated.RDS"))
+sample_names <- unique(merged$orig.ident)
 
-total_columns <- ncol(annotated_spatial_data@meta.data)
-all_proportions <- annotated_spatial_data@meta.data[(total_columns-9):total_columns]
+total_columns <- ncol(merged@meta.data)
+all_proportions <- merged@meta.data[(total_columns-9):total_columns]
 cell_types <- colnames(all_proportions)
-all_proportions$sample_name <- annotated_spatial_data$orig.ident
+all_proportions$sample_name <- merged$orig.ident
 
 # Plot proportions on spatial tissue slides
 for (selected_sample in sample_names) {
   
-  tissue_positions <- GetTissueCoordinates(annotated_spatial_data, 
+  tissue_positions <- GetTissueCoordinates(merged, 
                                            image = selected_sample) %>% 
     select(x,y)
   sample_proportions <- all_proportions %>% filter(sample_name == selected_sample) %>%
@@ -63,10 +63,10 @@ for (selected_sample in sample_names) {
 }
 
 # Spatial slides with annotated major cell types per spot
-annotated_spatial_data@meta.data <- annotated_spatial_data@meta.data %>%
+merged@meta.data <- merged@meta.data %>%
   mutate(main_cell_type = names(.[cell_types])[max.col(.[cell_types], ties.method = "first")])
 
-p <- plotSpatialDim_by_celltypes(annotated_spatial_data, 
+p <- plotSpatialDim_by_celltypes(merged, 
                             "orig.ident", 
                             cell_types, pt.size = 4)
 p
@@ -74,7 +74,7 @@ ggsave(here("results","plots","cell_types_spatial.png"),p,
        width = 14, height = 6, dpi = 150, units = "in", device='png')
 
 # Naive gene expression imputation based on proportion matrix
-spatial_counts_sct <- as.matrix(LayerData(annotated_spatial_data, 
+spatial_counts_sct <- as.matrix(LayerData(merged, 
                                       assay = "SCT", 
                                       layer = "data"))
 
@@ -88,11 +88,11 @@ for (target_cell_type in cell_types) {
   assay_name <- paste0("Pseudo_",
                        str_replace_all(target_cell_type, " ", "_"),
                        "_SCT")
-  annotated_spatial_data[[assay_name]] <- CreateAssay5Object(data = pseudo_expr_matrix)
+  merged[[assay_name]] <- CreateAssay5Object(data = pseudo_expr_matrix)
 }
 
 # Plot for FGF19 total expression vs expression by cell type (based on proportions)
-p <- plotGEX_by_celltypes(annotated_spatial_data, 
+p <- plotGEX_by_celltypes(merged, 
                      "FGF19", 
                      "orig.ident", 
                      cell_types)
@@ -101,7 +101,7 @@ ggsave(here("results","plots","FGF19_GEX_by_celltype.png"),p,
        width = 18, height = 10, dpi = 150, units = "in", device='png')
 
 # Heatmap illustrating cluster enrichment for estimated cell types
-median_proportions <- annotated_spatial_data@meta.data %>% 
+median_proportions <- merged@meta.data %>% 
   group_by(integrated_clusters, orig.ident) %>%
   summarize(across(all_of(cell_types), median, 
                    .names = "{.col}"), 
@@ -109,7 +109,7 @@ median_proportions <- annotated_spatial_data@meta.data %>%
 
 p <- plotClusterHeatmap_by_celltype(median_proportions,
                                cell_types,
-                               n_samples = length(unique(annotated_spatial_data$orig.ident)))
+                               n_samples = length(unique(merged$orig.ident)))
 
 p
 ggsave(here("results","plots","cluster_celltypes_heatmap.png"),p,

@@ -55,6 +55,7 @@ names(merged@images)
 ## Number of UMIs + Spatial distribution
 plot1 <- VlnPlot(merged, 
                  features = "log10_nCount_Spatial", 
+                 group.by = "orig.ident",
                  layer = "counts",
                  pt.size = 0) + 
   NoLegend()
@@ -72,6 +73,7 @@ wrap_plots(plot1, plot2)
 VlnPlot(merged, 
         features = c("nFeature_Spatial","percent.mt"), 
         layer = "counts",
+        group.by = "orig.ident",
         pt.size = 0,) + 
   NoLegend()
 
@@ -79,6 +81,7 @@ VlnPlot(merged,
 VlnPlot(merged, 
         features = c("S.Score","G2M.Score"), 
         layer = "counts",
+        group.by = "orig.ident",
         pt.size = 0,) + 
   NoLegend()
 
@@ -105,7 +108,7 @@ merged <- SCTransform(merged,
                                           "percent.mt"),
                       verbose = FALSE)
 gc()
-merged <- RunPCA(merged, verbose = F) # Elbow plot?
+merged <- RunPCA(merged, verbose = F)
 
 # Unintegrated data processing
 merged <- FindNeighbors(merged, dims = 1:30, reduction = "pca", verbose = F) %>%
