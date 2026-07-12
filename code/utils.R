@@ -3,6 +3,7 @@ suppressPackageStartupMessages({
   library(ggplot2)
   library(stringr)
   library(pheatmap)
+  library(pals)
 })
 set.seed(123)
 
@@ -45,14 +46,32 @@ Load10X_Visium <- function (
   return(seu)
 }
 
+get_celltypes_colorpanel <- function(cell_types) {
+  colors <- glasbey.colors(12)[c(2:4,6:12)]
+  names(colors) <- cell_types
+  return(colors)
+}
+
+get_celltypes_legend <- function(cell_types, color_pallete) {
+  dummy_data <- data.frame(
+    Cell_Type = cell_types,
+    Values = c(1:length(cell_types))
+  )
+  
+  custom_legend <- ggplot(dummy_data, aes(x = Values, y = Values, color = Cell_Type)) +
+    scale_color_manual(values = color_pallete) +
+    geom_point(size=4) + theme(legend.position = "bottom")
+  pure_legend <- cowplot::get_legend(custom_legend)
+  return(pure_legend)
+}
+
 plot_Proportions_RCTD <- function(tissue_positions, proportions, title=NULL){
-  proportions <- sample_proportions
   if (nrow(tissue_positions) != nrow(proportions)) {
     stop("Number of spatial spots doesn't match number of estimated proportions")
   }
-  plotData <- cbind(sample_proportions, tissue_positions)
+  plotData <- cbind(proportions, tissue_positions)
   allPlots <- list()
-  for (ct in colnames(sample_proportions)) {
+  for (ct in colnames(proportions)) {
     plt <- ggplot(plotData, aes(x, y, col=.data[[ct]])) + 
       coord_equal() + theme_void() + 
       geom_point(size=0.3)
@@ -74,28 +93,12 @@ plot_Proportions_RCTD <- function(tissue_positions, proportions, title=NULL){
 
 plot_Heatmap_RCTD <- function(proportions, title) {
   p <- pheatmap(as.matrix(proportions), 
-                show_rownames=FALSE, show_colnames=TRUE, main=title)
-                #cellwidth=12, treeheight_row=5, treeheight_col=5)
+                show_rownames=FALSE, 
+                show_colnames=TRUE, 
+                main=title,
+                silent = TRUE)
+  #cellwidth=12, treeheight_row=5, treeheight_col=5)
   return(p)
-}
-
-get_celltypes_colorpanel <- function(cell_types) {
-  colors <- glasbey.colors(12)[c(2:4,6:12)]
-  names(colors) <- cell_types
-  return(colors)
-}
-
-get_celltypes_legend <- function(cell_types, color_pallete) {
-  dummy_data <- data.frame(
-    Cell_Type = cell_types,
-    Values = c(1:length(cell_types))
-  )
-  
-  custom_legend <- ggplot(dummy_data, aes(x = Values, y = Values, color = Cell_Type)) +
-    scale_color_manual(values = color_pallete) +
-    geom_point(size=4) + theme(legend.position = "bottom")
-  pure_legend <- cowplot::get_legend(custom_legend)
-  return(pure_legend)
 }
 
 plotSpatialDim_by_celltypes <- function(spatial_data, 

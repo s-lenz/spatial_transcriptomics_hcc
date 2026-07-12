@@ -32,3 +32,4 @@ dependencies:
   - r-tca=1.2.1
   - r-pheatmap=1.0.13
   - r-polychrome=1.6.1
+  - r-tictoc=1.2.1
