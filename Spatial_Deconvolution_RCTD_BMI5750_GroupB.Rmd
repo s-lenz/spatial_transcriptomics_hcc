@@ -575,7 +575,7 @@ for (selected_sample in sample_names) {
 print(plot1)
 ```
 
-As we expected, the majority of the spots contain tumor hepatocytes. However, we also see a few sites enriched with fibroblasts and immune cells (myeloid and lymphocytes) where the percentage of tumor hepatocytes is reduced. We could suggest that those tissue immune sites are highly activated, potentially affecting tumor cells
+As we expected, the majority of the spots contain tumor hepatocytes. However, we also see a few sites enriched with fibroblasts and immune cells (myeloid and lymphocytes) where the percentage of tumor hepatocytes is reduced. These could represent distinct tumor immune microenvironment niches that could be further investigated for immune activation and tumor-stroma interactions.
 
 **Plot #2. Heatmap with proportions per cell (by sample)**
 
