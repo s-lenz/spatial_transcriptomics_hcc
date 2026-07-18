@@ -1,6 +1,7 @@
 ---
 title: "Spatial Deconvolution with RCTD package"
-author: "Group B"
+author: "Group B. Katya Aladyeva, JT Bobik, Sidney Lenz, Kate Zoller"
+date: "07-16-2026"
 
 output:
   html_document:
@@ -16,26 +17,27 @@ output:
 ---
 
 # Introduction
-In this tutorial we will go through the process of spots deconvolution on 10X Visium spatial example dataset using RCTD algorithm (part of spacexr package)  
-[spacexr Github repository](https://github.com/dmcable/spacexr)    
-* Pipeline code and additional data to reproduce this tutorial also available in the [Github repository](https://github.com/s-lenz/spatial_transcriptomics_hcc)     
-** Preprocessing code for scRNAseq reference dataset is available at the request from Dr.Roychowdhury's OSU lab (contact person - Sidney Lenz).
-**Approximate execution time: 2 hour 20 minutes** (MacBook Air M2, Mem 16Gb)
+In this tutorial, we will go through the process of spot deconvolution on a 10X Visium spatial example dataset using the RCTD algorithm (part of spacexr package)  
+[spacexr GitHub repository](https://github.com/dmcable/spacexr)    
+* Pipeline code and additional data to reproduce this tutorial are also available in the [GitHub repository](https://github.com/s-lenz/spatial_transcriptomics_hcc)     
+** Preprocessing code for scRNAseq reference dataset is available upon request from Dr.Roychowdhury's OSU lab (contact person - Sidney Lenz)    
+
+**Approximate execution time: 2 hour 20 minutes** (MacBook Air M2, Memory - 16Gb)
 
 ## Used datasets
 
 ### Query spatial dataset
-10X Genomics Visium (standard resolution) containing 17 liver samples from 4 donors with Hepatocellular carcinoma (HCC). 16 tissue slides present mainly tumor sites and 1 tissue presents normal liver (A009N). Total spatial spots: 25,096   
+10X Genomics Visium (standard resolution) containing 17 liver samples from 4 donors with Hepatocellular carcinoma (HCC). 16 tissue slides present mainly tumor sites, and 1 tissue slide presents normal liver (A009N). Total spatial spots: 25,096   
 GEO Id: [GSE281759](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE281759)
 
 ### Reference scRNAseq dataset
-Single-cell transcriptomes for 10 HCC patients from 4 sites: primary tumor, portal vein tumor thrombus (PVTT), metastatic lymph node and non-tumor liver. For the purposes of this tutorial, we kept only primary tumor and non-tumor liver sites. Total number of cells in the final dataset: 54,544. Final cell type annotations were obtained with scType (known markers) and SingleR (Human Liver Atlas) algorithms.   
+Single-cell transcriptome data for 10 HCC patients from 4 sites: primary tumor, portal vein tumor thrombus (PVTT), metastatic lymph node, and non-tumor liver. For the purposes of this tutorial, we kept only primary tumor and non-tumor liver sites. Total number of cells in the final dataset: 54,544. Final cell type annotations were obtained with scType and scPred (with known markers and Human Liver Atlas reference).   
 GEO Id: [GSE149614](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE149614)
 
 # Tutorial Steps
 
 ## Environment setup
-We start with managing the computational environment. Instead of directly installing the required packages, which might introduce internal conflicts and break dependencies for other projects, we recommend using an isolated Conda environment to manage packages independently of the system R.   
+We start with managing the computational environment. Instead of installing the required package directly, which might introduce internal conflicts and break dependencies for other projects, we recommend using an isolated Conda environment to manage packages independently of the system R.   
 More details on how to start using Conda environments are available here:
 [Conda documentation](https://docs.conda.io/projects/conda/en/latest/index.html)
 
@@ -89,10 +91,10 @@ if (isRStudio) {
     }
 }
 
-# Load additional utilies and visualization functions
+# Load additional utilities and visualization functions
 source(here("code","utils.R"))
 
-# Set seed for reproducability
+# Set seed for reproducibility
 seed_id <- 123
 set.seed(seed_id)
 
@@ -102,7 +104,7 @@ dir.create(here("logs"), recursive = TRUE, showWarnings = FALSE)
 ```
 
 ## Input data preparation
-Spot deconvolution uses transcriptional profiles of cell types from single-cell RNA data reference to estimate their proportions in a spatial dataset. Therefore, we need to ensure that both single-cell (reference) and spatial (query) data come from similar biological sources (ideally, the same donors): species, tissue type, disease and etc. If any cell type is missing from the reference, the RCTD algorithm won't be able to predict its proportions in the query data
+Spot deconvolution uses transcriptional profiles of cell types from a single-cell RNAseq data reference to estimate their proportions in a spatial dataset. Therefore, we need to ensure that both single-cell (reference) and spatial (query) data come from similar biological sources (ideally, the same donors): species, tissue type, disease, and etc. If any cell type is missing from the reference, the RCTD algorithm won't be able to predict its proportions in the query data
 
 ### Reference (scRNAseq) dataset
 For this tutorial, we do not include details on the preprocessing of single-cell RNA-seq data. The reference dataset must contain raw (unnormalized, untransformed) counts and metadata with cell-type annotations for each cell
@@ -117,9 +119,9 @@ reference_data$custom_celltype <- gsub("/","-",reference_data$custom_celltype)
 
 **Data preparation**    
 
-- Download metadata, sequencing data and spatial images (CytAssist) from supplementary files in GEO using GEOquery package
-- Reorganize and modify files with tissue images and sequenced data to make them readable by Seurat package
-- Read individual samples into Seurat objects and merge them into single Seurat dataset
+- Download metadata, sequencing data, and spatial images (CytAssist) from supplementary files in GEO using GEOquery package
+- Reorganize and modify files with tissue images and sequenced data to make them readable by the Seurat package
+- Read individual samples into Seurat objects and merge them into a single Seurat dataset
 
 ``` {r Download and prepare query data, warning=FALSE}
 gse <- "GSE281759"
@@ -214,7 +216,7 @@ saveRDS(merged, here("data","merged_spatial_data.RDS"))
 **Data quality control**
 
 - Calculate mitochondrial content (% of mitochondrial gene reads in total reads)    
-- Calculate cell cycle genes scores   
+- Calculate cell cycle gene scores   
 
 ``` {r QC and preprocessing query dataset #1}
 # Read Seurat object with spatial data (if necessary)
@@ -241,14 +243,14 @@ merged <- NormalizeData(merged,
 merged <- CellCycleScoring(object = merged,  
                           s.features = s.genes, 
                            g2m.features = g2m.genes, 
-                           slot = "counts") # why counts and not data?
+                           slot = "data")
 
 # Re-split layers for the multisample SCTransform
 merged[["Spatial"]] <- split(merged[["Spatial"]], f = merged$orig.ident)
 gc()
 ```
 
-Let's look at QC plots to get better understanding of possible thresholds
+Let's look at QC plots to get a better understanding of possible thresholds
 
 Number of spots before QC: `r format(ncol(merged), big.mark = ",")`
 
@@ -297,7 +299,7 @@ VlnPlot(merged,
   NoLegend()
 ```
 
-Based on QC plots we are going to remove all spots with log10(nUMIs) < 3 and MT content > 10%
+Based on QC plots, we are going to remove all spots with log10(nUMIs) < 3 and MT content > 10%
 ```{r QC and preprocessing query dataset #4, warning=FALSE}
 merged <- subset(merged, log10_nCount_Spatial >= 3 & percent.mt <= 10)
 ```
@@ -306,9 +308,9 @@ Number of spots after QC: `r format(ncol(merged), big.mark = ",")`
 
 **Data processing**
 
-Now we can perform typical processing pipeline for single cell transcriptomics data (ignoring spatial context)   
+Now we can perform the typical processing pipeline for single-cell transcriptomics data (ignoring spatial context)   
 
-- SCT normalization and tranformation (regress out number of genes and MT content)   
+- SCT normalization and transformation (regress out number of genes and MT content)   
 - PCA calculation   
 - Neighbors search in PCA space   
 - UMAP dimensional reduction   
@@ -355,7 +357,7 @@ for (res in cluster_resolutions) {
 clustree(merged, prefix = "unintegrated_clusters_")
 ```
 
-Based on this cluster tree we will pick 0.2 cluster resolution as it shows the highest stability
+Based on this cluster tree, we will pick 0.2 cluster resolution as it shows the highest stability
 
 ```{r QC and preprocessing query dataset #6, fig.width=8, fig.height=4}
 
@@ -369,7 +371,7 @@ wrap_plots(p1, p2, ncol = 2, byrow = F)
 
 ```
 
-From those UMAPs we see strong batch effect for spatial samples. Therefore, we are going to run integrations with Seurat wrapper for Harmony package
+From those UMAPs, we observe a strong batch effect in the spatial samples. Therefore, we are going to run integrations with the Seurat wrapper for the Harmony package
 
 ```{r QC and preprocessing query dataset #7, fig.width=8, fig.height=4}
 # Integrated (Harmony) data processing
@@ -426,7 +428,7 @@ wrap_plots(p1, p2, ncol = 2, byrow = F)
 saveRDS(merged, file = here("data", "merged_spatial_processed_harmony.RDS"))
 ```
 
-Now, after QC and initial data exploratory analysis, we can proceed with spot deconvolution of spatial query data with RCTD algorithm
+Now, after QC and initial data exploratory analysis, we can proceed with spot deconvolution of spatial query data with the RCTD algorithm
 
 ## Spot deconvolution with RCTD
 
@@ -434,7 +436,7 @@ Required algorithm inputs
 
 - raw counts from reference data   
 - cell type annotations for each cell in reference data   
-- raw counts from query data and spatial spot coordinated on tissue slide   
+- raw counts from query data and spatial spot coordinates on tissue slide   
 
 ``` {r Run RCTD deconvolution, message=FALSE, warning=FALSE}
 # Prepare reference dataset with cell type annotations (scRNAseq)
@@ -620,7 +622,7 @@ print(p)
 
 ```
 
-As we see majority of samples contain mostly tumor cells, but interestingly few samples, for example B0013T4 and C008T1, also shows large adjacent normal liver tissue spots. Such areas can be potentially use for further analysis of tumor microenvironments and spatial niches 
+As we see, most samples contain predominantly tumor cells, but interestingly, a few samples, such as B0013T4 and C008T1, also show large adjacent normal liver tissue spots. Such areas can be potentially used for further analysis of tumor microenvironments and spatial niches 
 
 **Plot #4. Violin plots with FGF19 total expression vs expression by cell type (based on proportions)**
 
